@@ -1,0 +1,59 @@
+# ============================================================
+# CI — Pull Requests (cualquier rama)
+# Se ejecuta en: cualquier PR que NO sea hacia main o develop
+# (feature branches, hotfixes, etc.)
+# Corre tests rápidos sin grabar en Cypress Cloud
+# ============================================================
+
+name: 🔍 CI — Pull Request (Feature Branch)
+
+on:
+  pull_request:
+    branches-ignore:
+      - main
+      - develop
+
+jobs:
+  cypress-pr:
+    name: Cypress Tests (PR rápido)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: ⚙️  Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🏗️  Build de la app
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      # Sin record: true → no consume créditos de Cypress Cloud
+      - name: 🧪 Cypress — Tests rápidos (sin grabar)
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm run preview -- --port 5173
+          wait-on: 'http://localhost:5173'
+          wait-on-timeout: 60
+        env:
+          CYPRESS_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          CYPRESS_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      - name: 📸 Subir screenshots en fallos
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots-pr-${{ github.event.pull_request.number }}
+          path: cypress/screenshots
+          retention-days: 3

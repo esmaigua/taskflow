@@ -1,0 +1,67 @@
+# ============================================================
+# CI — Rama MAIN (Producción)
+# Se ejecuta en: push a main, y en PRs hacia main
+# Solo corre tests críticos (smoke tests) para ir más rápido
+# ============================================================
+
+name: 🚀 CI — Main (Producción)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  cypress-production:
+    name: Cypress Smoke Tests (Producción)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: ⚙️  Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🏗️  Build de la app (Producción)
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+
+      # En producción solo corremos los smoke tests (auth crítico)
+      # para no tardar demasiado ni afectar datos reales
+      - name: 🔥 Cypress — Smoke Tests (Producción)
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm run preview -- --port 5173
+          wait-on: 'http://localhost:5173'
+          wait-on-timeout: 60
+          record: true
+          tag: production,main
+          # Solo corre el archivo de auth (smoke tests)
+          spec: cypress/e2e/auth.cy.js
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+          CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_PROJECT_ID }}
+          CYPRESS_TEST_EMAIL: ${{ secrets.PROD_TEST_EMAIL }}
+          CYPRESS_TEST_PASSWORD: ${{ secrets.PROD_TEST_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+
+      - name: 📸 Subir screenshots en fallos
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots-prod
+          path: cypress/screenshots
+          retention-days: 14

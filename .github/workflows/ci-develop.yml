@@ -1,0 +1,76 @@
+# ============================================================
+# CI — Rama DEVELOP (Staging)
+# Se ejecuta en: push a develop, y en PRs hacia develop
+# Corre TODOS los tests y reporta a Cypress Cloud
+# ============================================================
+
+name: 🧪 CI — Develop (Staging)
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  cypress-staging:
+    name: Cypress Tests (Staging)
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Clonar el repositorio
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      # 2. Instalar Node.js
+      - name: ⚙️  Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # 3. Instalar dependencias (incluyendo Cypress)
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      # 4. Construir la app con variables de entorno de STAGING
+      - name: 🏗️  Build de la app (Staging)
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      # 5. Levantar preview server + correr Cypress
+      #    cypress-io/github-action levanta el servidor y espera a que esté listo
+      - name: 🌲 Cypress — Correr tests (Staging)
+        uses: cypress-io/github-action@v6
+        with:
+          # Levanta el servidor de preview del build
+          start: npm run preview -- --port 5173
+          wait-on: 'http://localhost:5173'
+          wait-on-timeout: 60
+          # Envía resultados a Cypress Cloud
+          record: true
+          # Tag para identificar en Cypress Cloud
+          tag: staging,develop
+        env:
+          # Cypress Cloud - Project ID y Record Key
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+          CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_PROJECT_ID }}
+          # Variables de entorno para los tests
+          CYPRESS_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          CYPRESS_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+          # Variables de Supabase para la app en runtime
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      # 6. Subir screenshots si hay fallos
+      - name: 📸 Subir screenshots en fallos
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots-staging
+          path: cypress/screenshots
+          retention-days: 7
