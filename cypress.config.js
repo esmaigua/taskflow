@@ -4,7 +4,7 @@ export default defineConfig({
   // ─── Cypress Cloud ────────────────────────────────────────────────────────
   // projectId se obtiene al crear el proyecto en cloud.cypress.io
   // Puedes dejarlo vacío hasta que lo crees
-  projectId: process.env.CYPRESS_PROJECT_ID || 'xxxxxxx',
+  projectId:'u8t5bf',
 
   e2e: {
     baseUrl: 'http://localhost:5173',
