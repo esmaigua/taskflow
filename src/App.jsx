@@ -18,7 +18,7 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Loading inicial
+  // Loading de inicio
   if (session === undefined) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
