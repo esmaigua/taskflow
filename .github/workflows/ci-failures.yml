@@ -1,0 +1,100 @@
+# ══════════════════════════════════════════════════════════════
+# CI — Suite de Fallos Intencionales
+# Se ejecuta en: push a develop y main
+# NO bloquea el merge — es informativo para el agente de QA
+# Los fallos aquí son ESPERADOS y documentados
+# ══════════════════════════════════════════════════════════════
+
+name: 🔴 QA — Fallos Intencionales (Autonomous Agent Input)
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:   # permite lanzarlo manualmente desde GitHub UI
+
+jobs:
+  cypress-failures:
+    name: Intentional Failure Suite
+    runs-on: ubuntu-latest
+    # continue-on-error: true → el job no falla el workflow aunque los tests fallen
+    # Esto es clave: queremos capturar los resultados sin bloquear el pipeline
+    continue-on-error: true
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🏗️ Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      - name: 🔴 Cypress — Suite de fallos intencionales
+        uses: cypress-io/github-action@v6
+        continue-on-error: true   # también a nivel de step
+        with:
+          start: npm run preview -- --port 5173
+          wait-on: 'http://localhost:5173'
+          wait-on-timeout: 60
+          spec: cypress/e2e/failures.cy.js
+          record: true
+          tag: failures,autonomous-qa
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+          CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_PROJECT_ID }}
+          CYPRESS_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          CYPRESS_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+
+      # Genera el reporte JSON con los resultados — lo usará el agente
+      - name: 📊 Generar reporte de resultados
+        if: always()   # siempre corre, incluso si los tests fallaron
+        run: |
+          echo "=== RESULTADOS DE SUITE DE FALLOS ===" >> failure-report.txt
+          echo "Rama: ${{ github.ref_name }}" >> failure-report.txt
+          echo "Commit: ${{ github.sha }}" >> failure-report.txt
+          echo "Autor: ${{ github.actor }}" >> failure-report.txt
+          echo "Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')" >> failure-report.txt
+          echo "Cypress Cloud: https://cloud.cypress.io/projects/${{ secrets.CYPRESS_PROJECT_ID }}/runs" >> failure-report.txt
+
+      # Sube el reporte como artifact — disponible para descargar
+      - name: 📁 Subir reporte y screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: failure-suite-results-${{ github.run_number }}
+          path: |
+            cypress/screenshots
+            cypress/videos
+            failure-report.txt
+          retention-days: 30
+
+      # Resumen visible directamente en GitHub Actions
+      - name: 📝 Escribir resumen en GitHub
+        if: always()
+        run: |
+          echo "## 🔴 Suite de Fallos Intencionales" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rama | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Los fallos en esta suite son **intencionales y documentados**." >> $GITHUB_STEP_SUMMARY
+          echo "El agente autónomo de QA procesará los resultados y creará tickets en Jira." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[Ver en Cypress Cloud](https://cloud.cypress.io/projects/${{ secrets.CYPRESS_PROJECT_ID }}/runs)" >> $GITHUB_STEP_SUMMARY
