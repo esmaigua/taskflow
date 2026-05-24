@@ -7,19 +7,16 @@
 name: 🤖 QA — Agente Autónomo (Claude + Jira)
 
 on:
-  # Se activa cuando termina el workflow de fallos intencionales
   workflow_run:
     workflows: ["🔴 QA — Fallos Intencionales (Autonomous Agent Input)"]
     types:
       - completed
-  # También se puede lanzar manualmente
   workflow_dispatch:
 
 jobs:
   qa-agent:
     name: Autonomous QA Agent
     runs-on: ubuntu-latest
-    # Corre siempre, independientemente de si el workflow anterior falló
     if: always()
 
     steps:
@@ -31,7 +28,6 @@ jobs:
         with:
           node-version: 20
 
-      # Descargar los artifacts del workflow de fallos (screenshots, reporte)
       - name: 📁 Descargar artifacts del workflow anterior
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -39,29 +35,15 @@ jobs:
           pattern: failure-suite-results-*
           merge-multiple: true
 
-      # Ejecutar el agente autónomo
       - name: 🤖 Ejecutar Agente Autónomo de QA
         run: node scripts/qa-agent.mjs
         env:
-          # Claude API — para análisis inteligente de fallos
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-
-          # Jira — para crear tickets automáticamente
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
-
-          # GitHub — para comentar en PRs
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
-
-      # Resumen visible en GitHub Actions
-      - name: 📝 Resumen del agente
-        if: always()
-        run: |
-          echo "## 🤖 Agente Autónomo de QA ejecutado" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "El agente procesó los resultados de la suite de fallos intencionales." >> $GITHUB_STEP_SUMMARY
-          echo "Revisa los logs para ver los tickets creados en Jira." >> $GITHUB_STEP_SUMMARY
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          JIRA_BASE_URL:      ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL:         ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN:     ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY:   ${{ secrets.JIRA_PROJECT_KEY }}
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          GITHUB_SHA:         ${{ github.sha }}
+          GITHUB_REF_NAME:    ${{ github.ref_name }}
