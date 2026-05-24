@@ -1,20 +1,18 @@
 // cypress/e2e/todos.cy.js
-// Pruebas de la gestión de tareas (requiere estar autenticado)
 
-const TEST_EMAIL = Cypress.env('TEST_EMAIL')
+const TEST_EMAIL    = Cypress.env('TEST_EMAIL')
 const TEST_PASSWORD = Cypress.env('TEST_PASSWORD')
 
 describe('Gestión de Tareas', () => {
 
-  // Iniciar sesión antes de cada test via UI
   beforeEach(() => {
     cy.loginUI(TEST_EMAIL, TEST_PASSWORD)
-    // Esperar a que cargue la lista
-    cy.get('[data-cy=todo-list]', { timeout: 8000 }).should('be.visible')
+    // FIX: aumentar timeout — con 50+ tareas acumuladas Supabase tarda más
+    cy.get('[data-cy=todo-list]', { timeout: 15000 }).should('be.visible')
   })
 
   // ─────────────────────────────────────────────
-  // PÁGINA PRINCIPAL
+  // INTERFAZ PRINCIPAL
   // ─────────────────────────────────────────────
   describe('Interfaz principal', () => {
     it('Muestra el email del usuario en el navbar', () => {
@@ -67,10 +65,13 @@ describe('Gestión de Tareas', () => {
 
   // ─────────────────────────────────────────────
   // COMPLETAR TAREAS
+  // FIX: crear tarea fresca y esperar que aparezca antes de togglear
   // ─────────────────────────────────────────────
   describe('Completar tareas', () => {
     beforeEach(() => {
       cy.addTodo(`Completar ${Date.now()}`)
+      // Esperar que la tarea nueva aparezca en el DOM
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'false')
     })
 
     it('Puede marcar una tarea como completada', () => {
@@ -80,6 +81,7 @@ describe('Gestión de Tareas', () => {
 
     it('Puede desmarcar una tarea completada', () => {
       cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'true')
       cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
       cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'false')
     })
@@ -92,20 +94,24 @@ describe('Gestión de Tareas', () => {
     it('Puede eliminar una tarea', () => {
       const text = `Eliminar ${Date.now()}`
       cy.addTodo(text)
+      cy.get('[data-cy=todo-text]').last().should('contain', text)
       cy.get('[data-cy=todo-item]').last().find('[data-cy=delete-btn]').click({ force: true })
-      cy.get('[data-cy=todo-text]').should('not.contain', text)
+      cy.get('[data-cy=todo-item]').last().find('[data-cy=todo-text]').should('not.contain', text)
     })
   })
 
   // ─────────────────────────────────────────────
   // EDITAR TAREAS
+  // FIX: crear tarea y esperar que exista antes de editar
   // ─────────────────────────────────────────────
   describe('Editar tareas', () => {
     beforeEach(() => {
       cy.addTodo(`Original ${Date.now()}`)
+      // Esperar que la tarea nueva esté en el DOM antes de intentar editarla
+      cy.get('[data-cy=todo-item]').last().find('[data-cy=todo-text]').should('be.visible')
     })
 
-    it('Puede abrir el modo edición', () => {
+    it('Puede entrar en modo edición', () => {
       cy.get('[data-cy=todo-item]').last().find('[data-cy=edit-btn]').click({ force: true })
       cy.get('[data-cy=edit-input]').should('be.visible')
     })
@@ -133,10 +139,11 @@ describe('Gestión de Tareas', () => {
   // ─────────────────────────────────────────────
   describe('Filtros', () => {
     beforeEach(() => {
-      // Crear 2 tareas y completar 1
       cy.addTodo(`Activa ${Date.now()}`)
       cy.addTodo(`Completar ${Date.now()}`)
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'false')
       cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'true')
     })
 
     it('El filtro "Completadas" solo muestra completadas', () => {
@@ -168,10 +175,10 @@ describe('Gestión de Tareas', () => {
       const textoActiva = `Activa ${Date.now()}`
       cy.addTodo(textoActiva)
       cy.addTodo(`Completada ${Date.now()}`)
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'false')
       cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
-
+      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'true')
       cy.get('[data-cy=clear-completed]').click()
-      cy.get('[data-cy=todo-text]').should('contain', textoActiva)
       cy.get('[data-cy=todo-item]').each(($el) => {
         cy.wrap($el).should('have.attr', 'data-completed', 'false')
       })

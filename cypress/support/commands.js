@@ -1,30 +1,6 @@
 // cypress/support/commands.js
 
-// ─── Login programático (rápido, sin pasar por la UI) ───────────────────────
-// Ideal para usar en beforeEach de tests que no prueban el login en sí
-Cypress.Commands.add('loginByApi', (email, password) => {
-  cy.request({
-    method: 'POST',
-    url: `${Cypress.env('SUPABASE_URL') || 'https://xxxx.supabase.co'}/auth/v1/token?grant_type=password`,
-    headers: {
-      'apikey': Cypress.env('SUPABASE_ANON_KEY') || '',
-      'Content-Type': 'application/json',
-    },
-    body: { email, password },
-    failOnStatusCode: false,
-  }).then((response) => {
-    if (response.status === 200) {
-      // Guardar sesión en localStorage como lo hace Supabase
-      const session = response.body
-      window.localStorage.setItem(
-        `sb-${Cypress.env('SUPABASE_PROJECT_ID')}-auth-token`,
-        JSON.stringify(session)
-      )
-    }
-  })
-})
-
-// ─── Login via UI ────────────────────────────────────────────────────────────
+// ─── Login via UI ─────────────────────────────────────────────
 Cypress.Commands.add('loginUI', (email, password) => {
   cy.visit('/login')
   cy.get('[data-cy=email-input]').type(email)
@@ -33,14 +9,40 @@ Cypress.Commands.add('loginUI', (email, password) => {
   cy.url().should('include', '/app')
 })
 
-// ─── Agregar una tarea (estando en /app) ─────────────────────────────────────
+// ─── Agregar tarea ────────────────────────────────────────────
 Cypress.Commands.add('addTodo', (text) => {
   cy.get('[data-cy=todo-input]').clear().type(text)
   cy.get('[data-cy=add-btn]').click()
 })
 
-// ─── Logout ──────────────────────────────────────────────────────────────────
+// ─── Logout ───────────────────────────────────────────────────
 Cypress.Commands.add('logout', () => {
   cy.get('[data-cy=logout-btn]').click()
   cy.url().should('include', '/login')
+})
+
+// ─── Limpiar TODAS las tareas del usuario de prueba ──────────
+// Necesario porque la cuenta acumula tareas de runs anteriores
+// y cuando hay 50+ tareas la lista tarda demasiado en cargar
+Cypress.Commands.add('clearAllTodos', () => {
+  // Eliminar todas las tareas visibles usando el botón de cada una
+  cy.get('body').then(($body) => {
+    if ($body.find('[data-cy=clear-completed]').length > 0) {
+      // Completar todas las activas primero para poder usar clear-completed
+      cy.get('[data-cy=todo-item]').each(($el) => {
+        if ($el.attr('data-completed') === 'false') {
+          cy.wrap($el).find('[data-cy=toggle-btn]').click()
+        }
+      })
+      cy.get('[data-cy=clear-completed]').click()
+    }
+    // Eliminar las que queden
+    cy.get('[data-cy=todo-item]').then(($items) => {
+      if ($items.length > 0) {
+        cy.get('[data-cy=todo-item]').each(($el) => {
+          cy.wrap($el).find('[data-cy=delete-btn]').click({ force: true })
+        })
+      }
+    })
+  })
 })
