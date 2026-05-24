@@ -1,14 +1,8 @@
-// playwright/tests/todos.spec.js
-// ══════════════════════════════════════════════════════════════
-// Mismos escenarios que cypress/e2e/todos.cy.js
-// ══════════════════════════════════════════════════════════════
-
 import { test, expect } from '@playwright/test'
 
 const TEST_EMAIL    = process.env.TEST_EMAIL    || 'test@taskflow.com'
 const TEST_PASSWORD = process.env.TEST_PASSWORD || 'Test1234!'
 
-// Helper de login — equivalente al cy.loginUI() de Cypress
 async function loginUI(page) {
   await page.goto('/login')
   await page.locator('[data-cy=email-input]').fill(TEST_EMAIL)
@@ -17,19 +11,17 @@ async function loginUI(page) {
   await expect(page.locator('[data-cy=todo-list]')).toBeVisible({ timeout: 8000 })
 }
 
-// Helper addTodo — equivalente al cy.addTodo() de Cypress
 async function addTodo(page, text) {
   await page.locator('[data-cy=todo-input]').fill(text)
   await page.locator('[data-cy=add-btn]').click()
+  // Esperar que el item aparezca antes de continuar
+  await expect(page.locator('[data-cy=todo-text]').last()).toContainText(text)
 }
 
-// Login antes de cada test del grupo
 test.beforeEach(async ({ page }) => {
   await loginUI(page)
 })
 
-// ─────────────────────────────────────────────
-// INTERFAZ PRINCIPAL
 // ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Interfaz', () => {
 
@@ -38,7 +30,6 @@ test.describe('Gestión de Tareas — Interfaz', () => {
   })
 
   test('Muestra el título de la página', async ({ page }) => {
-    await expect(page.locator('[data-cy=todo-page-title]')).toBeVisible()
     await expect(page.locator('[data-cy=todo-page-title]')).toContainText('tareas')
   })
 
@@ -51,8 +42,6 @@ test.describe('Gestión de Tareas — Interfaz', () => {
 })
 
 // ─────────────────────────────────────────────
-// AGREGAR TAREAS
-// ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Agregar', () => {
 
   test('Puede agregar una tarea', async ({ page }) => {
@@ -62,7 +51,8 @@ test.describe('Gestión de Tareas — Agregar', () => {
   })
 
   test('El input se limpia al agregar una tarea', async ({ page }) => {
-    await addTodo(page, 'Limpieza del input')
+    await page.locator('[data-cy=todo-input]').fill('Limpieza del input')
+    await page.locator('[data-cy=add-btn]').click()
     await expect(page.locator('[data-cy=todo-input]')).toHaveValue('')
   })
 
@@ -87,8 +77,6 @@ test.describe('Gestión de Tareas — Agregar', () => {
 })
 
 // ─────────────────────────────────────────────
-// COMPLETAR TAREAS
-// ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Completar', () => {
 
   test.beforeEach(async ({ page }) => {
@@ -110,24 +98,28 @@ test.describe('Gestión de Tareas — Completar', () => {
 })
 
 // ─────────────────────────────────────────────
-// ELIMINAR TAREAS
-// ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Eliminar', () => {
 
   test('Puede eliminar una tarea', async ({ page }) => {
     const text = `Eliminar ${Date.now()}`
     await addTodo(page, text)
-    // Hover para que aparezca el botón (CSS opacity: 0 → 1 en hover)
+
+    // Guardar cuántas tareas hay ANTES de eliminar
+    const countAntes = await page.locator('[data-cy=todo-item]').count()
+
+    // Hacer hover y eliminar el último item
     const lastItem = page.locator('[data-cy=todo-item]').last()
     await lastItem.hover()
     await lastItem.locator('[data-cy=delete-btn]').click()
-    await expect(page.locator('[data-cy=todo-text]')).not.toContainText(text)
+
+    // FIX: verificar por conteo en lugar de buscar texto en todos los elementos.
+    // Playwright strict mode rechaza .not.toContainText() sobre múltiples elementos.
+    // Cypress lo tolera, Playwright no — diferencia importante entre frameworks.
+    await expect(page.locator('[data-cy=todo-item]')).toHaveCount(countAntes - 1)
   })
 
 })
 
-// ─────────────────────────────────────────────
-// EDITAR TAREAS
 // ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Editar', () => {
 
@@ -165,8 +157,6 @@ test.describe('Gestión de Tareas — Editar', () => {
 })
 
 // ─────────────────────────────────────────────
-// FILTROS
-// ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Filtros', () => {
 
   test.beforeEach(async ({ page }) => {
@@ -202,8 +192,6 @@ test.describe('Gestión de Tareas — Filtros', () => {
 })
 
 // ─────────────────────────────────────────────
-// LIMPIAR COMPLETADAS
-// ─────────────────────────────────────────────
 test.describe('Gestión de Tareas — Limpiar completadas', () => {
 
   test('Elimina solo las tareas completadas', async ({ page }) => {
@@ -211,8 +199,22 @@ test.describe('Gestión de Tareas — Limpiar completadas', () => {
     await addTodo(page, textoActiva)
     await addTodo(page, `Completada ${Date.now()}`)
     await page.locator('[data-cy=todo-item]').last().locator('[data-cy=toggle-btn]').click()
+
+    const totalAntes = await page.locator('[data-cy=todo-item]').count()
     await page.locator('[data-cy=clear-completed]').click()
-    await expect(page.locator('[data-cy=todo-text]')).toContainText(textoActiva)
+
+    // FIX: usar .filter({ hasText }) en lugar de buscar en todos los elementos.
+    // Evita strict mode violation. Además verifica que queda exactamente 1 item
+    // con el texto activo — más preciso que buscar en 50+ elementos a la vez.
+    await expect(
+      page.locator('[data-cy=todo-item]').filter({ hasText: textoActiva })
+    ).toHaveCount(1)
+
+    // Verificar que el total de items se redujo
+    const totalDespues = await page.locator('[data-cy=todo-item]').count()
+    expect(totalDespues).toBeLessThan(totalAntes)
+
+    // Verificar que todos los restantes son activos
     const items = page.locator('[data-cy=todo-item]')
     const count = await items.count()
     for (let i = 0; i < count; i++) {

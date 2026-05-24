@@ -1,15 +1,8 @@
-// playwright/tests/auth.spec.js
-// ══════════════════════════════════════════════════════════════
-// Mismos escenarios que cypress/e2e/auth.cy.js
-// Propósito: comparativa real de sintaxis, velocidad y DX
-// ══════════════════════════════════════════════════════════════
-
 import { test, expect } from '@playwright/test'
 
 const TEST_EMAIL    = process.env.TEST_EMAIL    || 'test@taskflow.com'
 const TEST_PASSWORD = process.env.TEST_PASSWORD || 'Test1234!'
 
-// Helper equivalente al cy.loginUI() custom command de Cypress
 async function loginUI(page) {
   await page.goto('/login')
   await page.locator('[data-cy=email-input]').fill(TEST_EMAIL)
@@ -18,9 +11,6 @@ async function loginUI(page) {
   await expect(page).toHaveURL(/\/app/)
 }
 
-// ─────────────────────────────────────────────
-// RUTAS PROTEGIDAS
-// ─────────────────────────────────────────────
 test.describe('Autenticación — Rutas protegidas', () => {
 
   test('Redirige a /login si no hay sesión y se accede a /app', async ({ page }) => {
@@ -36,9 +26,6 @@ test.describe('Autenticación — Rutas protegidas', () => {
 
 })
 
-// ─────────────────────────────────────────────
-// PÁGINA DE LOGIN
-// ─────────────────────────────────────────────
 test.describe('Autenticación — Página de Login', () => {
 
   test.beforeEach(async ({ page }) => {
@@ -86,9 +73,6 @@ test.describe('Autenticación — Página de Login', () => {
 
 })
 
-// ─────────────────────────────────────────────
-// PÁGINA DE REGISTRO
-// ─────────────────────────────────────────────
 test.describe('Autenticación — Página de Registro', () => {
 
   test.beforeEach(async ({ page }) => {
@@ -125,9 +109,6 @@ test.describe('Autenticación — Página de Registro', () => {
 
 })
 
-// ─────────────────────────────────────────────
-// LOGOUT
-// ─────────────────────────────────────────────
 test.describe('Autenticación — Cerrar sesión', () => {
 
   test('Puede cerrar sesión y redirige a /login', async ({ page }) => {
@@ -139,8 +120,15 @@ test.describe('Autenticación — Cerrar sesión', () => {
   test('Después de cerrar sesión no puede acceder a /app', async ({ page }) => {
     await loginUI(page)
     await page.locator('[data-cy=logout-btn]').click()
+
+    // Esperar que la redirección a /login se complete
+    // Supabase.signOut() es async — React necesita un tick para
+    // actualizar el estado de sesión y que el router redirija
+    await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
+
+    // Ahora navegar a /app — el guard debe redirigir de nuevo a /login
     await page.goto('/app')
-    await expect(page).toHaveURL(/\/login/)
+    await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
   })
 
 })
