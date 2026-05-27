@@ -12,7 +12,8 @@
     "cypress:run:record": "cypress run --record",
     "cypress:smoke": "cypress run --spec cypress/e2e/smoke.cy.js",
     "cypress:failures": "cypress run --spec cypress/e2e/failures.cy.js",
-    "qa:agent": "node scripts/qa-agent.mjs"
+    "qa:agent": "node scripts/qa-agent.mjs",
+    "qa:chat": "node scripts/claude-jira.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",
