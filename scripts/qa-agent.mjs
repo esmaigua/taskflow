@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // scripts/qa-agent.mjs
 // ══════════════════════════════════════════════════════════════════
-//  AGENTE AUTÓNOMO DE QA — Autonomous QA Agent
-//  Percibe → Razona → Actúa (AaaS pattern)
+//  AGENTE AUTÓNOMO DE QA v2 — TaskFlow
+//  Patrón AaaS: Percibe → Clasifica → Razona → Actúa
 //
-//  1. PERCIBE:  Lee resultados de Cypress (failures.cy.js)
-//  2. RAZONA:   Claude analiza cada fallo y genera tickets profesionales
-//  3. ACTÚA:    Crea los tickets en Jira vía REST API
+//  Mejoras v2:
+//  - Clasificación inteligente de errores (flaky, timeout, selector, etc.)
+//  - Anti-duplicados: busca en Jira antes de crear
+//  - Relaciona tickets similares automáticamente
+//  - Severidad automática por tipo de error
+//  - Labels inteligentes por categoría
 // ══════════════════════════════════════════════════════════════════
 
 import fs from 'fs'
@@ -18,6 +21,7 @@ const JIRA_API_TOKEN    = process.env.JIRA_API_TOKEN
 const JIRA_PROJECT_KEY  = process.env.JIRA_PROJECT_KEY || 'SCRUM'
 const GITHUB_SHA        = process.env.GITHUB_SHA || 'local'
 const GITHUB_REF        = process.env.GITHUB_REF_NAME || 'develop'
+const GITHUB_REPO       = process.env.GITHUB_REPOSITORY || 'taskflow'
 
 const c = {
   red:    (s) => `\x1b[31m${s}\x1b[0m`,
@@ -26,19 +30,83 @@ const c = {
   blue:   (s) => `\x1b[34m${s}\x1b[0m`,
   cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
   bold:   (s) => `\x1b[1m${s}\x1b[0m`,
+  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CLASIFICADOR DE ERRORES
+// Detecta el tipo de fallo para generar labels y severidad correcta
+// ══════════════════════════════════════════════════════════════════
+function classifyError(test) {
+  const error   = (test.error || '').toLowerCase()
+  const title   = (test.title || '').toLowerCase()
+  const suite   = (test.fullTitle || '').toLowerCase()
+
+  // Flaky: timeout intermitente en operaciones de red
+  if (error.includes('timed out') && (error.includes('supabase') || error.includes('fetch') || error.includes('network'))) {
+    return { type: 'flaky', severity: 'Medium', labels: ['flaky', 'network', 'cypress-e2e'] }
+  }
+
+  // Timeout: elemento no aparece en tiempo esperado
+  if (error.includes('timed out retrying') || error.includes('timeout')) {
+    return { type: 'timeout', severity: 'High', labels: ['timeout', 'cypress-e2e', 'ui'] }
+  }
+
+  // Selector roto: elemento no encontrado
+  if (error.includes('expected to find element') || error.includes('cannot read properties') || error.includes('not found')) {
+    return { type: 'selector', severity: 'High', labels: ['broken-selector', 'cypress-e2e', 'ui'] }
+  }
+
+  // Auth: problemas de autenticación
+  if (suite.includes('auth') || suite.includes('login') || suite.includes('sesión') || error.includes('401') || error.includes('unauthorized')) {
+    return { type: 'auth', severity: 'Highest', labels: ['auth', 'security', 'cypress-e2e'] }
+  }
+
+  // Backend/API: errores de servidor
+  if (error.includes('500') || error.includes('502') || error.includes('503') || error.includes('api') || error.includes('supabase')) {
+    return { type: 'backend', severity: 'High', labels: ['backend', 'api', 'cypress-e2e'] }
+  }
+
+  // Network: problemas de red
+  if (error.includes('network') || error.includes('cors') || error.includes('err_connection') || error.includes('fetch')) {
+    return { type: 'network', severity: 'High', labels: ['network', 'cypress-e2e'] }
+  }
+
+  // Regresión: assertion que antes pasaba y ahora falla
+  if (error.includes('expected') && error.includes('actual')) {
+    return { type: 'regression', severity: 'High', labels: ['regression', 'cypress-e2e'] }
+  }
+
+  // Frontend: problemas de UI generales
+  if (suite.includes('todos') || suite.includes('filtros') || suite.includes('editar') || suite.includes('completar')) {
+    return { type: 'frontend', severity: 'Medium', labels: ['frontend', 'ui', 'cypress-e2e'] }
+  }
+
+  // Navegación: rutas inexistentes o redireccionadas mal
+  if (suite.includes('navegación') || suite.includes('ruta') || title.includes('dashboard') || title.includes('profile')) {
+    return { type: 'navigation', severity: 'Medium', labels: ['navigation', 'routing', 'cypress-e2e'] }
+  }
+
+  // Validación: formularios
+  if (suite.includes('validacion') || title.includes('email') || title.includes('caracteres') || title.includes('espacios')) {
+    return { type: 'validation', severity: 'Low', labels: ['validation', 'forms', 'cypress-e2e'] }
+  }
+
+  return { type: 'unknown', severity: 'Medium', labels: ['cypress-e2e', 'needs-triage'] }
 }
 
 // ══════════════════════════════════════════════════════════════════
 // FUNCIÓN PRINCIPAL
 // ══════════════════════════════════════════════════════════════════
 async function runQAAgent() {
-  console.log(c.bold('\n🤖 Agente Autónomo de QA — TaskFlow\n'))
+  console.log(c.bold('\n🤖 Agente Autónomo de QA v2 — TaskFlow\n'))
+  console.log(`   Repo:   ${GITHUB_REPO}`)
   console.log(`   Rama:   ${GITHUB_REF}`)
   console.log(`   Commit: ${GITHUB_SHA.substring(0, 7)}`)
   console.log(`   Jira:   ${JIRA_BASE_URL || 'no configurado'}\n`)
 
   // ── PASO 1: PERCIBIR ─────────────────────────────────────────
-  console.log(c.blue('📊 PASO 1: Leyendo resultados de Cypress...'))
+  console.log(c.blue('📊 PASO 1: Leyendo y clasificando resultados de Cypress...'))
   const failedTests = readFailedTests()
 
   if (failedTests.length === 0) {
@@ -47,44 +115,95 @@ async function runQAAgent() {
     process.exit(0)
   }
 
-  console.log(`   ${c.red(`${failedTests.length} fallos detectados`)}`)
-  failedTests.forEach(t => console.log(`   → ${t.title}`))
+  // Clasificar cada fallo
+  const classifiedTests = failedTests.map(t => ({
+    ...t,
+    classification: classifyError(t),
+  }))
 
-  // ── PASO 2: RAZONAR ──────────────────────────────────────────
-  console.log(c.blue('\n🧠 PASO 2: Claude analizando fallos...\n'))
-  const analysis = await analyzeWithClaude(failedTests)
-  console.log(`   Análisis completado: ${analysis.tickets.length} tickets generados`)
+  console.log(`\n   ${c.red(`${classifiedTests.length} fallos detectados:`)}`)
+  classifiedTests.forEach(t => {
+    console.log(`   → [${t.classification.type.toUpperCase()}] ${t.title}`)
+  })
 
-  // ── PASO 3: ACTUAR ───────────────────────────────────────────
-  console.log(c.blue('\n📋 PASO 3: Creando tickets en Jira...\n'))
+  // Filtrar flaky conocidos — no crear tickets para ellos
+  const validFailures = classifiedTests.filter(t => {
+    if (t.classification.type === 'flaky') {
+      console.log(c.yellow(`\n   ⚠️  Omitiendo fallo flaky: "${t.title}"`))
+      return false
+    }
+    return true
+  })
+
+  if (validFailures.length === 0) {
+    console.log(c.yellow('\n   Todos los fallos son flaky conocidos. No se crean tickets.\n'))
+    writeGitHubSummary('## ⚠️ Agente QA — Solo fallos flaky\n\nLos fallos detectados son intermitentes conocidos. No se requiere acción.')
+    process.exit(0)
+  }
+
+  // ── PASO 2: ANTI-DUPLICADOS ───────────────────────────────────
+  console.log(c.blue('\n🔍 PASO 2: Verificando duplicados en Jira...'))
+  const existingTitles = await getExistingJiraTitles()
+  console.log(`   Tickets existentes en Jira: ${existingTitles.length}`)
+
+  const newFailures = validFailures.filter(t => {
+    const titleKey = t.title.replace('[FAIL] ', '').substring(0, 50).toLowerCase()
+    const isDuplicate = existingTitles.some(existing =>
+      existing.toLowerCase().includes(titleKey) ||
+      titleKey.includes(existing.toLowerCase().substring(0, 30))
+    )
+    if (isDuplicate) {
+      console.log(c.yellow(`   ⚠️  Duplicado omitido: "${t.title}"`))
+    }
+    return !isDuplicate
+  })
+
+  if (newFailures.length === 0) {
+    console.log(c.yellow('\n   Todos los fallos ya tienen tickets en Jira.\n'))
+    writeGitHubSummary('## ✅ Agente QA — Tickets ya existentes\n\nTodos los fallos detectados ya tienen tickets creados en Jira.')
+    process.exit(0)
+  }
+
+  console.log(`   ${c.green(`${newFailures.length} fallos nuevos para crear tickets`)}`)
+
+  // ── PASO 3: RAZONAR CON CLAUDE ────────────────────────────────
+  console.log(c.blue('\n🧠 PASO 3: Claude analizando fallos...'))
+  const analysis = await analyzeWithClaude(newFailures)
+  console.log(`   Análisis: ${analysis.tickets.length} tickets generados`)
+
+  // ── PASO 4: ACTUAR — CREAR TICKETS EN JIRA ───────────────────
+  console.log(c.blue('\n📋 PASO 4: Creando tickets en Jira...\n'))
   const createdTickets = []
 
   for (const ticket of analysis.tickets) {
-    const key = await createJiraTicket(ticket)
+    const original = newFailures.find(f => f.title.includes(ticket.affectedTest?.substring(0, 20) || ''))
+    const classification = original?.classification || { type: 'unknown', severity: 'Medium', labels: ['cypress-e2e'] }
+
+    const key = await createJiraTicket(ticket, classification)
     if (key) {
-      createdTickets.push({ ...ticket, key })
-      console.log(`   ✅ ${c.cyan(key)} — ${ticket.title}`)
+      createdTickets.push({ ...ticket, key, classification })
+      console.log(`   ✅ ${c.cyan(key)} [${classification.type}] — ${ticket.title}`)
     }
   }
 
   // ── RESUMEN FINAL ─────────────────────────────────────────────
-  const summary = buildGitHubSummary(failedTests, createdTickets, analysis.summary)
+  const summary = buildGitHubSummary(classifiedTests, createdTickets, analysis.summary)
   writeGitHubSummary(summary)
 
   console.log(c.bold(c.green('\n✅ Agente completado\n')))
-  console.log(`   Fallos detectados: ${failedTests.length}`)
-  console.log(`   Tickets en Jira:   ${createdTickets.length}`)
-  if (createdTickets.length > 0) {
-    console.log(`   Ver en Jira:       ${JIRA_BASE_URL}/jira/software/projects/${JIRA_PROJECT_KEY}/boards\n`)
+  console.log(`   Fallos detectados:     ${failedTests.length}`)
+  console.log(`   Fallos válidos:        ${validFailures.length}`)
+  console.log(`   Tickets ya existentes: ${validFailures.length - newFailures.length}`)
+  console.log(`   Tickets creados:       ${createdTickets.length}`)
+  if (createdTickets.length > 0 && JIRA_BASE_URL) {
+    console.log(`\n   📋 Ver en Jira: ${JIRA_BASE_URL}/jira/software/projects/${JIRA_PROJECT_KEY}/boards\n`)
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// PASO 1 — PERCIBIR: leer resultados de Cypress
+// LEER RESULTADOS DE CYPRESS
 // ══════════════════════════════════════════════════════════════════
 function readFailedTests() {
-  // Cypress genera JSON con mochawesome-reporter (opcional)
-  // Si no existe, usamos los datos de demo del último run conocido
   const paths = ['cypress/results/output.json', 'cypress-results.json']
 
   for (const p of paths) {
@@ -99,9 +218,8 @@ function readFailedTests() {
     }
   }
 
-  // Datos reales del último run de GitHub Actions
-  // (6 fallos intencionales documentados en failures.cy.js)
-  console.log(c.yellow('   Usando datos del último run conocido de CI\n'))
+  // Datos reales del último run documentado de failures.cy.js
+  console.log(c.dim('   Usando datos del run documentado de failures.cy.js\n'))
   return [
     {
       title: 'Ruta /dashboard no existe — debe retornar 404',
@@ -112,7 +230,7 @@ function readFailedTests() {
     },
     {
       title: 'Enlace ¿Olvidaste tu contraseña? debe existir en login',
-      fullTitle: '🔴 Fallos Intencionales > Navegación > Enlace forgot-password',
+      fullTitle: '🔴 Fallos Intencionales > Navegación > forgot-password',
       file: 'cypress/e2e/failures.cy.js',
       duration: 3008,
       error: "Timed out retrying after 4000ms: Expected to find element: '[data-cy=forgot-password-link]'",
@@ -155,11 +273,12 @@ function extractFailed(raw) {
     for (const test of suite.tests || []) {
       if (test.fail) {
         failed.push({
-          title: test.title,
+          title:     test.title,
           fullTitle: test.fullTitle,
-          file: raw.results?.[0]?.file || '',
-          duration: test.duration || 0,
-          error: test.err?.message || 'Error desconocido',
+          file:      raw.results?.[0]?.file || '',
+          duration:  test.duration || 0,
+          error:     test.err?.message || 'Error desconocido',
+          stack:     test.err?.estack || '',
         })
       }
     }
@@ -170,7 +289,29 @@ function extractFailed(raw) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// PASO 2 — RAZONAR: Claude analiza los fallos
+// ANTI-DUPLICADOS — buscar tickets existentes en Jira
+// ══════════════════════════════════════════════════════════════════
+async function getExistingJiraTitles() {
+  if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) return []
+
+  try {
+    const jql = encodeURIComponent(`project=${JIRA_PROJECT_KEY} AND labels=cypress-e2e AND created >= -30d`)
+    const res = await fetch(`${JIRA_BASE_URL}/rest/api/3/search?jql=${jql}&maxResults=50&fields=summary`, {
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64'),
+        'Accept': 'application/json',
+      },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.issues || []).map(i => i.fields.summary.replace('[QA Auto] ', ''))
+  } catch {
+    return []
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ANÁLISIS CON CLAUDE
 // ══════════════════════════════════════════════════════════════════
 async function analyzeWithClaude(failedTests) {
   if (!ANTHROPIC_API_KEY) {
@@ -178,29 +319,43 @@ async function analyzeWithClaude(failedTests) {
     return buildDefaultAnalysis(failedTests)
   }
 
-  const testsStr = failedTests.map((t, i) =>
-    `Test ${i + 1}:\n  Título: ${t.title}\n  Suite: ${t.fullTitle}\n  Error: ${t.error}\n  Duración: ${t.duration}ms`
-  ).join('\n\n')
+  const testsStr = failedTests.map((t, i) => {
+    const cls = t.classification
+    return `Test ${i + 1}:
+  Título: ${t.title}
+  Suite: ${t.fullTitle}
+  Tipo de error: ${cls.type} (severidad: ${cls.severity})
+  Error: ${t.error}
+  Duración: ${t.duration}ms
+  Archivo: ${t.file}`
+  }).join('\n\n')
 
   const prompt = `Eres un Senior QA Engineer analizando fallos E2E de TaskFlow (React + Vite + Supabase).
+El agente ya clasificó cada fallo con su tipo y severidad. Usa esa información para generar tickets precisos.
 
 FALLOS DETECTADOS (${failedTests.length}):
 ${testsStr}
 
-Responde ÚNICAMENTE con JSON válido, sin markdown, sin explicaciones. Estructura exacta:
+Contexto del proyecto:
+- Commit: ${GITHUB_SHA.substring(0, 7)}
+- Rama: ${GITHUB_REF}
+- Repositorio: ${GITHUB_REPO}
+
+Responde ÚNICAMENTE con JSON válido. Estructura exacta:
 {
   "summary": "resumen ejecutivo en 2 oraciones",
   "tickets": [
     {
-      "title": "título máx 70 chars sin [FAIL]",
+      "title": "título máx 70 chars, claro y accionable",
       "type": "Bug",
       "priority": "High",
-      "component": "Routing|Forms|Performance|Security|Auth",
-      "description": "descripción técnica del problema en 2-3 oraciones",
+      "component": "Routing|Forms|Performance|Security|Auth|UI|API",
+      "description": "descripción técnica en 2-3 oraciones con contexto del stack",
       "stepsToReproduce": ["paso 1", "paso 2", "paso 3"],
-      "expectedResult": "comportamiento esperado",
-      "actualResult": "comportamiento actual observado",
-      "suggestedFix": "recomendación técnica concreta"
+      "expectedResult": "comportamiento esperado según las especificaciones",
+      "actualResult": "comportamiento actual observado en el test",
+      "suggestedFix": "recomendación técnica concreta para el desarrollador",
+      "affectedTest": "título exacto del test que falló"
     }
   ]
 }`
@@ -215,130 +370,130 @@ Responde ÚNICAMENTE con JSON válido, sin markdown, sin explicaciones. Estructu
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 3000,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
 
     const data = await res.json()
-    if (!res.ok) throw new Error(`API error ${res.status}: ${JSON.stringify(data)}`)
-
+    if (!res.ok) throw new Error(`API ${res.status}: ${JSON.stringify(data)}`)
     const text = data.content?.[0]?.text || ''
     const clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     return JSON.parse(clean)
-
   } catch (err) {
-    console.log(c.yellow(`   ⚠️  Claude API error: ${err.message}`))
+    console.log(c.yellow(`   ⚠️  Claude error: ${err.message}`))
     return buildDefaultAnalysis(failedTests)
   }
 }
 
 function buildDefaultAnalysis(failedTests) {
-  const componentMap = (t) => {
-    if (t.fullTitle.includes('Navegación')) return 'Routing'
-    if (t.fullTitle.includes('Validacion') || t.fullTitle.includes('Input') || t.fullTitle.includes('Email')) return 'Forms'
-    if (t.fullTitle.includes('Rendimiento') || t.fullTitle.includes('cargar')) return 'Performance'
-    if (t.fullTitle.includes('Seguridad') || t.fullTitle.includes('token') || t.fullTitle.includes('XSS')) return 'Security'
-    return 'General'
-  }
-
   return {
-    summary: `Se detectaron ${failedTests.length} fallos en la suite de QA autónoma. Los problemas abarcan rutas inexistentes, validaciones de formulario incompletas y ausencia de páginas requeridas.`,
-    tickets: failedTests.map((t, i) => ({
-      title: t.title.replace('[FAIL] ', '').substring(0, 70),
-      type: 'Bug',
-      priority: i < 2 ? 'High' : 'Medium',
-      component: componentMap(t),
-      description: `Fallo detectado automáticamente por el Agente de QA en commit ${GITHUB_SHA.substring(0, 7)}. El test "${t.title}" falló con el error: ${t.error}`,
-      stepsToReproduce: [
-        'Ejecutar npm run dev para levantar la aplicación',
-        `Reproducir el escenario: ${t.title}`,
-        'Observar que el comportamiento no coincide con el esperado',
-      ],
-      expectedResult: 'El elemento o funcionalidad debe existir y comportarse según las especificaciones.',
-      actualResult: t.error,
-      suggestedFix: 'Implementar la funcionalidad faltante o corregir la validación en el componente correspondiente.',
+    summary: `Se detectaron ${failedTests.length} fallos en la suite de QA autónoma. Requieren atención del equipo.`,
+    tickets: failedTests.map(t => ({
+      title:            t.title.replace('[FAIL] ', '').substring(0, 70),
+      type:             'Bug',
+      priority:         t.classification?.severity || 'Medium',
+      component:        t.classification?.type === 'navigation' ? 'Routing'
+                      : t.classification?.type === 'validation'  ? 'Forms'
+                      : t.classification?.type === 'auth'        ? 'Auth'
+                      : t.classification?.type === 'backend'     ? 'API'
+                      : 'UI',
+      description:      `Fallo detectado en commit ${GITHUB_SHA.substring(0, 7)} (rama: ${GITHUB_REF}). Error: ${t.error}`,
+      stepsToReproduce: ['Levantar la app con npm run dev', `Ejecutar: ${t.title}`, 'Observar el comportamiento'],
+      expectedResult:   'El elemento o comportamiento debe existir según las especificaciones.',
+      actualResult:     t.error,
+      suggestedFix:     'Revisar el componente correspondiente e implementar la funcionalidad faltante.',
+      affectedTest:     t.title,
     })),
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// PASO 3 — ACTUAR: crear ticket en Jira
+// CREAR TICKET EN JIRA (ADF format)
 // ══════════════════════════════════════════════════════════════════
-async function createJiraTicket(ticket) {
+async function createJiraTicket(ticket, classification) {
   if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
-    console.log(c.yellow(`   ⚠️  Jira no configurado — ticket demo: "${ticket.title}"`))
+    console.log(c.yellow(`   ⚠️  Jira no configurado — demo: "${ticket.title}"`))
     return null
   }
 
-  // Formato ADF (Atlassian Document Format) — requerido por Jira Cloud API v3
+  const commitUrl = `https://github.com/${GITHUB_REPO}/commit/${GITHUB_SHA}`
+
   const adfDescription = {
-    type: 'doc',
-    version: 1,
+    type: 'doc', version: 1,
     content: [
       {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Descripción' }],
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '📋 Descripción' }],
       },
       {
         type: 'paragraph',
         content: [{ type: 'text', text: ticket.description }],
       },
       {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Steps to Reproduce' }],
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '🔬 Tipo de Error' }],
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: `Clasificación automática: ${classification.type.toUpperCase()} | Severidad: ${classification.severity}` }],
+      },
+      {
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '🪜 Steps to Reproduce' }],
       },
       {
         type: 'orderedList',
         content: ticket.stepsToReproduce.map(step => ({
           type: 'listItem',
-          content: [{
-            type: 'paragraph',
-            content: [{ type: 'text', text: step }],
-          }],
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: step }] }],
         })),
       },
       {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Resultado Esperado' }],
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '✅ Resultado Esperado' }],
       },
       {
         type: 'paragraph',
         content: [{ type: 'text', text: ticket.expectedResult }],
       },
       {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Resultado Actual' }],
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '❌ Resultado Actual' }],
       },
       {
         type: 'paragraph',
         content: [{ type: 'text', text: ticket.actualResult }],
       },
       {
-        type: 'heading',
-        attrs: { level: 3 },
-        content: [{ type: 'text', text: 'Fix Sugerido' }],
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '🔧 Fix Sugerido' }],
       },
       {
         type: 'paragraph',
         content: [{ type: 'text', text: ticket.suggestedFix }],
       },
       {
-        type: 'rule', // línea separadora
+        type: 'heading', attrs: { level: 3 },
+        content: [{ type: 'text', text: '🔗 Contexto del Pipeline' }],
       },
       {
-        type: 'paragraph',
+        type: 'bulletList',
         content: [
-          {
-            type: 'text',
-            text: `🤖 Creado automáticamente por Agente de QA · Commit: ${GITHUB_SHA.substring(0, 7)} · Rama: ${GITHUB_REF}`,
-            marks: [{ type: 'em' }],
-          },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Spec: cypress/e2e/failures.cy.js` }] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Commit: ${GITHUB_SHA.substring(0, 7)} — ${commitUrl}` }] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Rama: ${GITHUB_REF}` }] }] },
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Entorno: Staging (CI)` }] }] },
         ],
+      },
+      { type: 'rule' },
+      {
+        type: 'paragraph',
+        content: [{
+          type: 'text',
+          text: `🤖 Creado automáticamente por Agente de QA v2 | ${new Date().toISOString()}`,
+          marks: [{ type: 'em' }],
+        }],
       },
     ],
   }
@@ -348,82 +503,85 @@ async function createJiraTicket(ticket) {
       project:     { key: JIRA_PROJECT_KEY },
       summary:     `[QA Auto] ${ticket.title}`,
       issuetype:   { name: 'Bug' },
-      priority:    { name: ticket.priority || 'Medium' },
+      priority:    { name: classification.severity },
       description: adfDescription,
-      labels:      ['autonomous-qa', 'cypress-e2e', ticket.component.toLowerCase()],
+      labels:      [...new Set([...classification.labels, 'autonomous-qa'])],
     },
   }
 
   try {
-    const credentials = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64')
     const res = await fetch(`${JIRA_BASE_URL}/rest/api/3/issue`, {
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type':  'application/json',
-        'Accept':        'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64'),
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
       body: JSON.stringify(body),
     })
 
     const data = await res.json()
-
     if (!res.ok) {
-      console.log(c.red(`   ❌ Jira error ${res.status}: ${JSON.stringify(data.errors || data.errorMessages || data)}`))
+      console.log(c.red(`   ❌ Jira ${res.status}: ${JSON.stringify(data.errors || data.errorMessages || data)}`))
       return null
     }
-
     return data.key
-
   } catch (err) {
-    console.log(c.red(`   ❌ Error de red con Jira: ${err.message}`))
+    console.log(c.red(`   ❌ Red: ${err.message}`))
     return null
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// RESUMEN EN GITHUB ACTIONS
+// RESUMEN GITHUB ACTIONS
 // ══════════════════════════════════════════════════════════════════
-function buildGitHubSummary(failedTests, createdTickets, summaryText) {
-  const jiraBoard = `${JIRA_BASE_URL}/jira/software/projects/${JIRA_PROJECT_KEY}/boards`
+function buildGitHubSummary(allTests, createdTickets, summaryText) {
+  const jiraBoard = JIRA_BASE_URL
+    ? `${JIRA_BASE_URL}/jira/software/projects/${JIRA_PROJECT_KEY}/boards`
+    : '#'
+
+  const byType = allTests.reduce((acc, t) => {
+    const type = t.classification?.type || 'unknown'
+    acc[type] = (acc[type] || 0) + 1
+    return acc
+  }, {})
+
+  const typeRows = Object.entries(byType)
+    .map(([type, count]) => `| ${type} | ${count} |`)
+    .join('\n')
 
   const ticketRows = createdTickets.length > 0
     ? createdTickets.map(t =>
-        `| [${t.key}](${JIRA_BASE_URL}/browse/${t.key}) | ${t.title} | ${t.priority} | ${t.component} |`
+        `| [${t.key}](${JIRA_BASE_URL}/browse/${t.key}) | ${t.title} | ${t.classification?.severity || '-'} | ${t.classification?.type || '-'} |`
       ).join('\n')
-    : '| — | Jira no configurado | — | — |'
+    : '| — | Sin tickets nuevos (ya existen o Jira no configurado) | — | — |'
 
-  const failRows = failedTests.map(t =>
-    `- **${t.title}**\n  \`${t.error?.substring(0, 120)}\``
-  ).join('\n')
-
-  return `## 🤖 Agente Autónomo de QA — Reporte
+  return `## 🤖 Agente Autónomo de QA v2 — Reporte
 
 > ${summaryText}
 
-### ❌ Fallos detectados (${failedTests.length})
+### 📊 Clasificación de fallos
 
-${failRows}
+| Tipo | Cantidad |
+|------|----------|
+${typeRows}
 
 ### 📋 Tickets creados en Jira
 
-| Ticket | Descripción | Prioridad | Componente |
-|--------|-------------|-----------|------------|
+| Ticket | Descripción | Severidad | Tipo |
+|--------|-------------|-----------|------|
 ${ticketRows}
 
-${createdTickets.length > 0 ? `🔗 [Ver tablero en Jira](${jiraBoard})` : ''}
+${createdTickets.length > 0 ? `🔗 [Ver tablero Jira](${jiraBoard})` : ''}
 
 ---
-*Agente Autónomo de QA · commit \`${GITHUB_SHA.substring(0, 7)}\` · rama \`${GITHUB_REF}\` · ${new Date().toISOString()}*
+*Agente QA v2 · commit \`${GITHUB_SHA.substring(0, 7)}\` · rama \`${GITHUB_REF}\` · ${new Date().toISOString()}*
 `
 }
 
 function writeGitHubSummary(content) {
-  const summaryPath = process.env.GITHUB_STEP_SUMMARY
-  if (summaryPath) {
-    fs.appendFileSync(summaryPath, content)
-    console.log(c.green('\n   📝 Resumen escrito en GitHub Actions'))
-  }
+  const p = process.env.GITHUB_STEP_SUMMARY
+  if (p) fs.appendFileSync(p, content)
 }
 
 // ══════════════════════════════════════════════════════════════════
