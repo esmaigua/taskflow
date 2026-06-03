@@ -3,11 +3,11 @@ import { defineConfig } from 'cypress'
 export default defineConfig({
   // ─── Cypress Cloud ────────────────────────────────────────────────────────
   // projectId se obtiene al crear el proyecto en cloud.cypress.io
-  // Puedes dejarlo vacío hasta que lo crees
   projectId: 'u8t5bf',
 
   e2e: {
-    baseUrl: 'http://localhost:5173',
+    //baseUrl: 'http://localhost:5173',
+    baseUrl: 'https://taskflow-sooty-pi.vercel.app/app',
     viewportWidth: 1280,
     viewportHeight: 720,
     // En CI se graba video; localmente no (más rápido)
