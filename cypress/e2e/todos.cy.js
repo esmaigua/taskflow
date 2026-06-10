@@ -64,13 +64,12 @@ describe('Gestión de Tareas', () => {
 
   // ─────────────────────────────────────────────
   // COMPLETAR TAREAS
-  // Interceptamos la petición a Supabase para saber
-  // exactamente cuándo termina el toggle en el servidor
+  // cy.intercept apunta a /rest/v1/todos que es la
+  // ruta real de la API REST de Supabase
   // ─────────────────────────────────────────────
   describe('Completar tareas', () => {
     beforeEach(() => {
-      // Interceptar petición PATCH de Supabase (toggle)
-      cy.intercept('PATCH', '**/todos**').as('toggleTodo')
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       cy.addTodo(`Completar ${Date.now()}`)
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'false')
@@ -79,22 +78,19 @@ describe('Gestión de Tareas', () => {
     it('Puede marcar una tarea como completada', () => {
       cy.get('[data-cy=todo-item]').last()
         .find('[data-cy=toggle-btn]').click()
-      // Esperar que Supabase confirme el PATCH antes de verificar
       cy.wait('@toggleTodo')
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
     })
 
     it('Puede desmarcar una tarea completada', () => {
-      // Completar
       cy.get('[data-cy=todo-item]').last()
         .find('[data-cy=toggle-btn]').click()
       cy.wait('@toggleTodo')
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
 
-      // Descompletar
-      cy.intercept('PATCH', '**/todos**').as('toggleBack')
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleBack')
       cy.get('[data-cy=todo-item]').last()
         .find('[data-cy=toggle-btn]').click()
       cy.wait('@toggleBack')
@@ -159,12 +155,10 @@ describe('Gestión de Tareas', () => {
 
   // ─────────────────────────────────────────────
   // FILTROS
-  // Interceptamos el PATCH para esperar que el toggle
-  // esté confirmado antes de activar los filtros
   // ─────────────────────────────────────────────
   describe('Filtros', () => {
     beforeEach(() => {
-      cy.intercept('PATCH', '**/todos**').as('toggleTodo')
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       cy.addTodo(`Activa ${Date.now()}`)
       cy.addTodo(`Completar ${Date.now()}`)
       cy.get('[data-cy=todo-item]').last()
@@ -204,7 +198,7 @@ describe('Gestión de Tareas', () => {
   // ─────────────────────────────────────────────
   describe('Limpiar completadas', () => {
     it('Elimina solo las tareas completadas', () => {
-      cy.intercept('PATCH', '**/todos**').as('toggleTodo')
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       const textoActiva = `Activa ${Date.now()}`
       cy.addTodo(textoActiva)
       cy.addTodo(`Completada ${Date.now()}`)
@@ -221,4 +215,5 @@ describe('Gestión de Tareas', () => {
       })
     })
   })
+
 })
