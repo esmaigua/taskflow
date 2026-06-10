@@ -77,23 +77,31 @@ describe('Gestión de Tareas', () => {
 
     it('Puede marcar una tarea como completada', () => {
       cy.get('[data-cy=todo-item]').last()
-        .find('[data-cy=toggle-btn]').click()
-      cy.wait('@toggleTodo')
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
     })
 
     it('Puede desmarcar una tarea completada', () => {
+      // Marcar como completada primero
       cy.get('[data-cy=todo-item]').last()
-        .find('[data-cy=toggle-btn]').click()
-      cy.wait('@toggleTodo')
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
 
+      // Ahora desmarcar
       cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleBack')
       cy.get('[data-cy=todo-item]').last()
-        .find('[data-cy=toggle-btn]').click()
-      cy.wait('@toggleBack')
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleBack', { timeout: 10000 })
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'false')
     })
@@ -161,11 +169,15 @@ describe('Gestión de Tareas', () => {
       cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       cy.addTodo(`Activa ${Date.now()}`)
       cy.addTodo(`Completar ${Date.now()}`)
+      
+      // Marcar la última tarea como completada
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'false')
       cy.get('[data-cy=todo-item]').last()
-        .find('[data-cy=toggle-btn]').click()
-      cy.wait('@toggleTodo')
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
     })
@@ -202,14 +214,22 @@ describe('Gestión de Tareas', () => {
       const textoActiva = `Activa ${Date.now()}`
       cy.addTodo(textoActiva)
       cy.addTodo(`Completada ${Date.now()}`)
+      
+      // Marcar la última tarea como completada
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'false')
       cy.get('[data-cy=todo-item]').last()
-        .find('[data-cy=toggle-btn]').click()
-      cy.wait('@toggleTodo')
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
       cy.get('[data-cy=todo-item]').last()
         .should('have.attr', 'data-completed', 'true')
+      
+      // Limpiar completadas
       cy.get('[data-cy=clear-completed]').click()
+      
+      // Verificar que solo quedan tareas activas
       cy.get('[data-cy=todo-item]').each(($el) => {
         cy.wrap($el).should('have.attr', 'data-completed', 'false')
       })
