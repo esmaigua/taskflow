@@ -45,10 +45,10 @@ jobs:
         uses: cypress-io/github-action@v6
         continue-on-error: true   # también a nivel de step
         with:
-          start: npm run preview -- --port 5173
+          #start: npm run preview -- --port 5173
           #wait-on: 'http://localhost:5173'
-          wait-on: 'https://taskflow-sooty-pi.vercel.app/app'          
-          wait-on-timeout: 60
+          #wait-on: 'https://taskflow-sooty-pi.vercel.app/app'          
+          #wait-on-timeout: 60
           spec: cypress/e2e/failures.cy.js
           record: true
           tag: failures,autonomous-qa

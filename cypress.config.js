@@ -7,7 +7,7 @@ export default defineConfig({
 
   e2e: {
     //baseUrl: 'http://localhost:5173',
-    baseUrl: 'https://taskflow-sooty-pi.vercel.app/app',
+    baseUrl: 'https://taskflow-sooty-pi.vercel.app',
     viewportWidth: 1280,
     viewportHeight: 720,
     // En CI se graba video; localmente no (más rápido)

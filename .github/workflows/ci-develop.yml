@@ -41,11 +41,11 @@ jobs:
       - name: 🌲 Cypress — Correr tests (Staging)
         uses: cypress-io/github-action@v6
         with:
-          start: npm run preview -- --port 5173
+          #start: npm run preview -- --port 5173
           
           #wait-on: 'http://localhost:5173'
-          wait-on: 'https://taskflow-sooty-pi.vercel.app/app'
-          wait-on-timeout: 60
+          #wait-on: 'https://taskflow-sooty-pi.vercel.app/app'
+          #wait-on-timeout: 60
           # Excluye failures.cy.js — ese corre en ci-failures.yml separado
           spec: cypress/e2e/auth.cy.js,cypress/e2e/smoke.cy.js,cypress/e2e/todos.cy.js
           record: true
