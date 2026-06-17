@@ -39,7 +39,7 @@ export default function TodoPage({ session }) {
   const addTodo = async () => {
     const trimmed = input.trim()
     if (!trimmed) { setError('La tarea no puede estar vacía.'); return }
-    if (trimmed.length < 3) { setError('Mínimo 3 caracteres.'); return }
+    //if (trimmed.length < 3) { setError('Mínimo 3 caracteres.'); return }
 
     const newTodo = { text: trimmed, completed: false, user_id: user.id }
     // Optimistic update
