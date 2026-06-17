@@ -1,13 +1,12 @@
 // cypress/e2e/auth.cy.js
-// Pruebas del flujo de autenticación: Login y Registro
 
-const TEST_EMAIL = Cypress.env('TEST_EMAIL')
+const TEST_EMAIL    = Cypress.env('TEST_EMAIL')
 const TEST_PASSWORD = Cypress.env('TEST_PASSWORD')
 
 describe('Autenticación', () => {
 
   // ─────────────────────────────────────────────
-  // REDIRECCIONES (rutas protegidas)
+  // RUTAS PROTEGIDAS
   // ─────────────────────────────────────────────
   describe('Rutas protegidas', () => {
     it('Redirige a /login si no hay sesión y se accede a /app', () => {
@@ -119,6 +118,13 @@ describe('Autenticación', () => {
     it('Después de cerrar sesión no puede acceder a /app', () => {
       cy.loginUI(TEST_EMAIL, TEST_PASSWORD)
       cy.get('[data-cy=logout-btn]').click()
+
+      // FIX: esperar que la redirección a /login complete ANTES de navegar.
+      // Supabase.signOut() es async — si visitamos /app inmediatamente,
+      // la sesión aún no se ha limpiado del estado de React.
+      cy.url().should('include', '/login')
+
+      // Ahora que el logout está completo, intentar acceder a /app
       cy.visit('/app')
       cy.url().should('include', '/login')
     })

@@ -41,9 +41,13 @@ jobs:
       - name: 🧪 Cypress — Tests rápidos (sin grabar)
         uses: cypress-io/github-action@v6
         with:
-          start: npm run preview -- --port 5173
-          wait-on: 'http://localhost:5173'
-          wait-on-timeout: 60
+          #start: npm run preview -- --port 5173
+          #wait-on: 'http://localhost:5173'
+          #wait-on: 'https://taskflow-sooty-pi.vercel.app/app'
+          #wait-on-timeout: 60
+          record: true
+          tag: pr
+          spec: cypress/e2e/smoke.cy.js
         env:
           CYPRESS_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
           CYPRESS_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}

@@ -1,7 +1,9 @@
 # ============================================================
 # CI — Rama MAIN (Producción)
 # Se ejecuta en: push a main, y en PRs hacia main
-# Solo corre tests críticos (smoke tests) para ir más rápido
+# Solo corre smoke tests — la suite completa ya pasó en develop
+# Si los smoke tests pasan → Vercel despliega automáticamente
+# Si fallan → el merge queda bloqueado → Vercel NO despliega
 # ============================================================
 
 name: 🚀 CI — Main (Producción)
@@ -23,7 +25,7 @@ jobs:
       - name: 📥 Checkout código
         uses: actions/checkout@v4
 
-      - name: ⚙️  Setup Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -32,24 +34,22 @@ jobs:
       - name: 📦 Instalar dependencias
         run: npm ci
 
-      - name: 🏗️  Build de la app (Producción)
+      - name: 🏗️ Build de la app (Producción)
         run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
 
-      # En producción solo corremos los smoke tests (auth crítico)
-      # para no tardar demasiado ni afectar datos reales
       - name: 🔥 Cypress — Smoke Tests (Producción)
         uses: cypress-io/github-action@v6
         with:
-          start: npm run preview -- --port 5173
-          wait-on: 'http://localhost:5173'
-          wait-on-timeout: 60
+          #start: npm run preview -- --port 5173
+          #wait-on: 'http://localhost:5173'
+          #wait-on: 'https://taskflow-sooty-pi.vercel.app/app'          
+          #wait-on-timeout: 60
           record: true
           tag: production,main
-          # Solo corre el archivo de auth (smoke tests)
-          spec: cypress/e2e/auth.cy.js
+          spec: cypress/e2e/smoke.cy.js
         env:
           CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
           CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_PROJECT_ID }}
@@ -65,3 +65,16 @@ jobs:
           name: cypress-screenshots-prod
           path: cypress/screenshots
           retention-days: 14
+
+      - name: ✅ Resumen de producción
+        if: success()
+        run: |
+          echo "## ✅ Smoke Tests — Producción" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Todos los smoke tests pasaron. Vercel desplegará automáticamente." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rama | \`main\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Autor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

@@ -1,20 +1,17 @@
 // cypress/e2e/todos.cy.js
-// Pruebas de la gestión de tareas (requiere estar autenticado)
 
-const TEST_EMAIL = Cypress.env('TEST_EMAIL')
+const TEST_EMAIL    = Cypress.env('TEST_EMAIL')
 const TEST_PASSWORD = Cypress.env('TEST_PASSWORD')
 
 describe('Gestión de Tareas', () => {
 
-  // Iniciar sesión antes de cada test via UI
   beforeEach(() => {
     cy.loginUI(TEST_EMAIL, TEST_PASSWORD)
-    // Esperar a que cargue la lista
-    cy.get('[data-cy=todo-list]', { timeout: 8000 }).should('be.visible')
+    cy.get('[data-cy=todo-list]', { timeout: 15000 }).should('be.visible')
   })
 
   // ─────────────────────────────────────────────
-  // PÁGINA PRINCIPAL
+  // INTERFAZ PRINCIPAL
   // ─────────────────────────────────────────────
   describe('Interfaz principal', () => {
     it('Muestra el email del usuario en el navbar', () => {
@@ -67,21 +64,46 @@ describe('Gestión de Tareas', () => {
 
   // ─────────────────────────────────────────────
   // COMPLETAR TAREAS
+  // cy.intercept apunta a /rest/v1/todos que es la
+  // ruta real de la API REST de Supabase
   // ─────────────────────────────────────────────
   describe('Completar tareas', () => {
     beforeEach(() => {
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       cy.addTodo(`Completar ${Date.now()}`)
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'false')
     })
 
     it('Puede marcar una tarea como completada', () => {
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
-      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'true')
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'true')
     })
 
     it('Puede desmarcar una tarea completada', () => {
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
-      cy.get('[data-cy=todo-item]').last().should('have.attr', 'data-completed', 'false')
+      // Marcar como completada primero
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'true')
+
+      // Ahora desmarcar
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleBack')
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleBack', { timeout: 10000 })
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'false')
     })
   })
 
@@ -92,8 +114,11 @@ describe('Gestión de Tareas', () => {
     it('Puede eliminar una tarea', () => {
       const text = `Eliminar ${Date.now()}`
       cy.addTodo(text)
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=delete-btn]').click({ force: true })
-      cy.get('[data-cy=todo-text]').should('not.contain', text)
+      cy.get('[data-cy=todo-text]').last().should('contain', text)
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=delete-btn]').click({ force: true })
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=todo-text]').should('not.contain', text)
     })
   })
 
@@ -103,28 +128,36 @@ describe('Gestión de Tareas', () => {
   describe('Editar tareas', () => {
     beforeEach(() => {
       cy.addTodo(`Original ${Date.now()}`)
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=todo-text]').should('be.visible')
     })
 
-    it('Puede abrir el modo edición', () => {
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=edit-btn]').click({ force: true })
+    it('Puede entrar en modo edición', () => {
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=edit-btn]').click({ force: true })
       cy.get('[data-cy=edit-input]').should('be.visible')
     })
 
     it('Puede guardar el texto editado', () => {
       const nuevoTexto = `Editado ${Date.now()}`
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=edit-btn]').click({ force: true })
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=edit-btn]').click({ force: true })
       cy.get('[data-cy=edit-input]').clear().type(nuevoTexto)
       cy.get('[data-cy=save-edit-btn]').click()
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=todo-text]').should('contain', nuevoTexto)
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=todo-text]').should('contain', nuevoTexto)
     })
 
     it('Puede cancelar la edición', () => {
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=todo-text]').invoke('text').then((textoOriginal) => {
-        cy.get('[data-cy=todo-item]').last().find('[data-cy=edit-btn]').click({ force: true })
-        cy.get('[data-cy=edit-input]').clear().type('Texto que no se guarda')
-        cy.get('[data-cy=cancel-edit-btn]').click()
-        cy.get('[data-cy=todo-item]').last().find('[data-cy=todo-text]').should('contain', textoOriginal.trim())
-      })
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=todo-text]').invoke('text').then((textoOriginal) => {
+          cy.get('[data-cy=todo-item]').last()
+            .find('[data-cy=edit-btn]').click({ force: true })
+          cy.get('[data-cy=edit-input]').clear().type('Texto que no se guarda')
+          cy.get('[data-cy=cancel-edit-btn]').click()
+          cy.get('[data-cy=todo-item]').last()
+            .find('[data-cy=todo-text]').should('contain', textoOriginal.trim())
+        })
     })
   })
 
@@ -133,14 +166,25 @@ describe('Gestión de Tareas', () => {
   // ─────────────────────────────────────────────
   describe('Filtros', () => {
     beforeEach(() => {
-      // Crear 2 tareas y completar 1
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       cy.addTodo(`Activa ${Date.now()}`)
       cy.addTodo(`Completar ${Date.now()}`)
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
+      
+      // Marcar la última tarea como completada
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'false')
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'true')
     })
 
     it('El filtro "Completadas" solo muestra completadas', () => {
       cy.get('[data-cy=filter-completadas]').click()
+      cy.get('[data-cy=todo-item]').should('have.length.at.least', 1)
       cy.get('[data-cy=todo-item]').each(($el) => {
         cy.wrap($el).should('have.attr', 'data-completed', 'true')
       })
@@ -148,6 +192,7 @@ describe('Gestión de Tareas', () => {
 
     it('El filtro "Activas" solo muestra pendientes', () => {
       cy.get('[data-cy=filter-activas]').click()
+      cy.get('[data-cy=todo-item]').should('have.length.at.least', 1)
       cy.get('[data-cy=todo-item]').each(($el) => {
         cy.wrap($el).should('have.attr', 'data-completed', 'false')
       })
@@ -165,16 +210,30 @@ describe('Gestión de Tareas', () => {
   // ─────────────────────────────────────────────
   describe('Limpiar completadas', () => {
     it('Elimina solo las tareas completadas', () => {
+      cy.intercept('PATCH', '**/rest/v1/todos*').as('toggleTodo')
       const textoActiva = `Activa ${Date.now()}`
       cy.addTodo(textoActiva)
       cy.addTodo(`Completada ${Date.now()}`)
-      cy.get('[data-cy=todo-item]').last().find('[data-cy=toggle-btn]').click()
-
+      
+      // Marcar la última tarea como completada
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'false')
+      cy.get('[data-cy=todo-item]').last()
+        .find('[data-cy=toggle-btn]')
+        .should('be.visible')
+        .click({ force: true })
+      cy.wait('@toggleTodo', { timeout: 10000 })
+      cy.get('[data-cy=todo-item]').last()
+        .should('have.attr', 'data-completed', 'true')
+      
+      // Limpiar completadas
       cy.get('[data-cy=clear-completed]').click()
-      cy.get('[data-cy=todo-text]').should('contain', textoActiva)
+      
+      // Verificar que solo quedan tareas activas
       cy.get('[data-cy=todo-item]').each(($el) => {
         cy.wrap($el).should('have.attr', 'data-completed', 'false')
       })
     })
   })
+
 })

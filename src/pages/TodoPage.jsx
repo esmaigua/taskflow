@@ -168,7 +168,7 @@ export default function TodoPage({ session }) {
                 key={todo.id}
                 className={`todo-item ${todo.completed ? 'completed' : ''}`}
                 data-cy="todo-item"
-                data-completed={todo.completed}
+                data-completed={todo.completed.toString()}
               >
                 {editingId === todo.id ? (
                   <div className="edit-wrapper">
